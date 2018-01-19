@@ -76,9 +76,14 @@ class commonservices extends Controller
             $territory = "0";
             break;            
         }
-        $data['territory'] = $territory;
-        $data['subdealer'] = $subdealer;
-        $data['dealerID'] = $dealerID;
+        //$data['territory'] = $territory;
+        //$data['subdealer'] = $subdealer;
+        //$data['dealerID'] = $dealerID;
+        $data = array(
+                "territory" => $territory,
+                "subdealer" => $subdealer,
+                "dealerID" => $dealerID
+        );
         return($data);
     }
 

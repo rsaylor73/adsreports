@@ -29,7 +29,6 @@ class commonservices extends Controller
 
     public function states($state) {
         $territory = "";
-        $subdealer = "No";
         $dealerID = "";
         $data = "";
 
@@ -48,401 +47,533 @@ class commonservices extends Controller
 
             case "mo":
             $territory = "30,129,130";
-            $subdealer = "Yes";
             break;
 
             case "il":
             $territory = "21,23,90,91,123,127";
-            $subdealer = "Yes";
             $dealerID = "553";
             break;
 
             case "ks":
             $territory = "58,142,139";
-            $subdealer = "Yes";
             break;
 
             case "or":
             $territory = "95,121,116";
-            $subdealer = "Yes";
             break;
 
             case "nv":
             $territory = "122,64,117,128,62";
-            $subdealer = "Yes";
             break;
 
             default:
             $territory = "0";
             break;            
         }
-        //$data['territory'] = $territory;
-        //$data['subdealer'] = $subdealer;
-        //$data['dealerID'] = $dealerID;
         $data = array(
                 "territory" => $territory,
-                "subdealer" => $subdealer,
                 "dealerID" => $dealerID
         );
         return($data);
     }
 
-    public function installs($territory,$start,$end,$subdealer,$dealerID='') {
-    	$em = $this->em;
+    public function getDealerNames($territory,$start,$end,$dealerID='') {
+        /*
+        There are 3 query, each could have dealers and each could be different. So we
+        will need to run all 3 query and build the dealers into a unique list and
+        store that into a value. We will then break the 3 queries out and use the dealer
+        as part of the query.
+        */
+
+        $em = $this->em;
 
         $sql_dealer = "";
         if ($dealerID != "") {
             $sql_dealer = "AND DealerID IN (".$dealerID.")";
         }
 
-    	$sql = "
-		SELECT 
-			de.CompanyName,
-            dr.EmployerName AS 'Name', 
-			dr.FullName, 
-			dr.LicenseNumber, 
-			DATE(MIN(Imported)) AS InstallDate
-		FROM BaiidReports
-		  INNER JOIN Drivers dr USING(DriverID)
-		  INNER JOIN Dealers de USING(DealerID)
-		  INNER JOIN Distributors USING(DistributorID)
-		WHERE TerritoryID IN ($territory)
-        $sql_dealer
-		GROUP BY DriverID
-		HAVING InstallDate BETWEEN '$start' AND '$end'
-		ORDER BY CompanyName, InstallDate, FullName
-    	";
+        $data = array();
+        $i = "0";
 
-    	$data = array();
-    	$i = "0";
+        // installs
+        $sql = "
+        SELECT 
+            de.CompanyName,
+            DATE(MIN(Imported)) AS InstallDate
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE TerritoryID IN ($territory)
+        $sql_dealer
+        GROUP BY DriverID
+        HAVING InstallDate BETWEEN '$start' AND '$end'
+        ORDER BY CompanyName
+        ";
+
         $result = $em->getConnection()->prepare($sql);
         $result->execute();  
         while ($row = $result->fetch()) {
-        	$data[$i]['CompanyName'] = $row['CompanyName'];
-            if ($subdealer == "Yes") {
-                $data[$i]['Name'] = $row['Name'];
-            }            
-        	$data[$i]['FullName'] = $row['FullName'];
-        	$data[$i]['LicenseNumber'] = $row['LicenseNumber'];
-        	$data[$i]['InstallDate'] = $row['InstallDate'];
-        	$i++;
+            $data[$i] = $row['CompanyName'];
+            $i++;
         }
-        return($data);    	
+
+        // removals
+        $sql = "
+        SELECT 
+            de.CompanyName,
+            DATE(MAX(Imported)) AS RemovalDate
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE NOT EXISTS (
+          SELECT NULL
+          FROM Items
+          WHERE ProductID = 1
+            AND Items.DriverID = dr.DriverID
+        ) AND TerritoryID IN ($territory)
+        $sql_dealer
+        GROUP BY DriverID
+        HAVING RemovalDate BETWEEN '$start' AND '$end'
+        ORDER BY CompanyName
+        ";    
+           
+        $result = $em->getConnection()->prepare($sql);
+        $result->execute();  
+        while ($row = $result->fetch()) {
+            $data[$i] = $row['CompanyName'];
+            $i++;
+        }
+
+        // downloads
+        $sql = "
+        SELECT 
+            de.CompanyName,
+            DATE(Imported) DownloadDate
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE Type = 'Details'
+          AND NOT Comment LIKE '%Server side removal detected%'
+          AND DATE(Imported) BETWEEN '$start' AND '$end'
+          AND TerritoryID IN ($territory)
+          $sql_dealer
+        ORDER BY CompanyName
+        ";
+
+        $result = $em->getConnection()->prepare($sql);
+        $result->execute();  
+        while ($row = $result->fetch()) {
+            $data[$i] = $row['CompanyName'];
+            $i++;
+        }
+        return($data);        
+
     }
 
- 	public function removals($territory,$start,$end,$subdealer,$dealerID='') {
- 		$em = $this->em;
+    public function installs_v2($dealername,$territory,$start,$end,$dealerID='') {
+        $em = $this->em;
 
         $sql_dealer = "";
         if ($dealerID != "") {
             $sql_dealer = "AND DealerID IN (".$dealerID.")";
         }
 
- 		$sql = "
-		SELECT 
-			de.CompanyName,
+        $sql = "
+        SELECT 
+            de.CompanyName,
             dr.EmployerName AS 'Name', 
-			dr.FullName, 
-			dr.LicenseNumber, 
-			DATE(MAX(Imported)) AS RemovalDate
-		FROM BaiidReports
-		  INNER JOIN Drivers dr USING(DriverID)
-		  INNER JOIN Dealers de USING(DealerID)
-		  INNER JOIN Distributors USING(DistributorID)
-		WHERE NOT EXISTS (
-		  SELECT NULL
-		  FROM Items
-		  WHERE ProductID = 1
-		    AND Items.DriverID = dr.DriverID
-		) AND TerritoryID IN ($territory)
+            dr.FullName, 
+            dr.LicenseNumber, 
+            DATE(MIN(Imported)) AS InstallDate
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE TerritoryID IN ($territory)
         $sql_dealer
-		GROUP BY DriverID
-		HAVING RemovalDate BETWEEN '$start' AND '$end'
-		ORDER BY CompanyName, RemovalDate, FullName
- 		";
-    	$data = array();
-    	$i = "0";
-        $result = $em->getConnection()->prepare($sql);
-        $result->execute();  
-        while ($row = $result->fetch()) {
-        	$data[$i]['CompanyName'] = $row['CompanyName'];
-            if ($subdealer == "Yes") {
-                $data[$i]['Name'] = $row['Name'];
-            }            
-        	$data[$i]['FullName'] = $row['FullName'];
-        	$data[$i]['LicenseNumber'] = $row['LicenseNumber'];
-        	$data[$i]['RemovalDate'] = $row['RemovalDate'];
-        	$i++;
-        }
-        return($data);   		
- 	}
+        GROUP BY DriverID
+        HAVING InstallDate BETWEEN '$start' AND '$end' AND CompanyName = ?
+        ORDER BY CompanyName, InstallDate, FullName
+        ";
 
- 	public function downloads($territory,$start,$end,$subdealer,$dealerID='') {
- 		$em = $this->em;
+        $data = array();
+        $i = "0";
+        $result = $em->getConnection()->prepare($sql);
+        $result->bindValue(1, $dealername);
+        $result->execute();  
+        while ($row = $result->fetch()) {          
+            $data[$i]['FullName'] = $row['FullName'];
+            $data[$i]['LicenseNumber'] = $row['LicenseNumber'];
+            $data[$i]['InstallDate'] = $row['InstallDate'];
+            $data[$i]['Name'] = $row['Name'];
+            $i++;
+        }
+        return($data);      
+    }
+
+    public function removals_v2($dealername,$territory,$start,$end,$dealerID='') {
+        $em = $this->em;
 
         $sql_dealer = "";
         if ($dealerID != "") {
             $sql_dealer = "AND DealerID IN (".$dealerID.")";
         }
 
- 		$sql = "
-		SELECT 
-			de.CompanyName,
+        $sql = "
+        SELECT 
+            de.CompanyName,
             dr.EmployerName AS 'Name', 
-			dr.FullName, 
-			dr.LicenseNumber, 
-			DATE(Imported) DownloadDate, 
-			REPLACE(Comment, '\n', ' ') AS Comment
-		FROM BaiidReports
-		  INNER JOIN Drivers dr USING(DriverID)
-		  INNER JOIN Dealers de USING(DealerID)
-		  INNER JOIN Distributors USING(DistributorID)
-		WHERE Type = 'Details'
-		  AND NOT Comment LIKE '%Server side removal detected%'
-		  AND DATE(Imported) BETWEEN '$start' AND '$end'
-		  AND TerritoryID IN ($territory)
-          $sql_dealer
-		ORDER BY CompanyName, DownloadDate, FullName
- 		";
-
-    	$data = array();
-    	$i = "0";
+            dr.FullName, 
+            dr.LicenseNumber, 
+            DATE(MAX(Imported)) AS RemovalDate
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE NOT EXISTS (
+          SELECT NULL
+          FROM Items
+          WHERE ProductID = 1
+            AND Items.DriverID = dr.DriverID
+        ) AND TerritoryID IN ($territory)
+        $sql_dealer
+        GROUP BY DriverID
+        HAVING RemovalDate BETWEEN '$start' AND '$end' AND CompanyName = ?
+        ORDER BY CompanyName, RemovalDate, FullName
+        ";
+        $data = array();
+        $i = "0";
         $result = $em->getConnection()->prepare($sql);
+        $result->bindValue(1, $dealername);
+        $result->execute();  
+        while ($row = $result->fetch()) {          
+            $data[$i]['FullName'] = $row['FullName'];
+            $data[$i]['LicenseNumber'] = $row['LicenseNumber'];
+            $data[$i]['RemovalDate'] = $row['RemovalDate'];
+            $data[$i]['Name'] = $row['Name'];
+            $i++;
+        }
+        return($data);          
+    }
+
+    public function downloads_v2($dealername,$territory,$start,$end,$dealerID='') {
+        $em = $this->em;
+
+        $sql_dealer = "";
+        if ($dealerID != "") {
+            $sql_dealer = "AND DealerID IN (".$dealerID.")";
+        }
+
+        $sql = "
+        SELECT 
+            de.CompanyName,
+            dr.EmployerName AS 'Name', 
+            dr.FullName, 
+            dr.LicenseNumber, 
+            DATE(Imported) DownloadDate, 
+            REPLACE(Comment, '\n', ' ') AS Comment
+        FROM BaiidReports
+          INNER JOIN Drivers dr USING(DriverID)
+          INNER JOIN Dealers de USING(DealerID)
+          INNER JOIN Distributors USING(DistributorID)
+        WHERE Type = 'Details'
+          AND NOT Comment LIKE '%Server side removal detected%'
+          AND DATE(Imported) BETWEEN '$start' AND '$end'
+          AND TerritoryID IN ($territory)
+          $sql_dealer
+        HAVING CompanyName = ?
+        ORDER BY CompanyName, DownloadDate, FullName
+        ";
+
+        $data = array();
+        $i = "0";
+        $result = $em->getConnection()->prepare($sql);
+        $result->bindValue(1, $dealername);
         $result->execute();  
         while ($row = $result->fetch()) {
-        	$data[$i]['CompanyName'] = $row['CompanyName'];
-            if ($subdealer == "Yes") {
-                $data[$i]['Name'] = $row['Name'];
-            }
-        	$data[$i]['FullName'] = $row['FullName'];
-        	$data[$i]['LicenseNumber'] = $row['LicenseNumber'];
-        	$data[$i]['DownloadDate'] = $row['DownloadDate'];
-        	$data[$i]['Comment'] = $row['Comment'];
-        	$i++;
+            $data[$i]['FullName'] = $row['FullName'];
+            $data[$i]['LicenseNumber'] = $row['LicenseNumber'];
+            $data[$i]['DownloadDate'] = $row['DownloadDate'];
+            $data[$i]['Name'] = $row['Name'];
+            $data[$i]['Comment'] = $row['Comment'];
+            $i++;
         }
-        return($data);   		 		
- 	}
+        return($data);                  
+    }
 
-    public function createfile($tab1,$tab2,$tab3,$filename,$site_path,$subdealer)
-    {
+    public function create_file_v2($dealers,$dealer_install_data,$dealer_removal_data,$dealer_download_data,$filename,$site_path) {
+
+        $count1 = "0";
+        $count2 = "0";
+        $count3 = "0";
+
+        // Style
+        // changed startColor from FFA0A0A0 : FFFFFFFF
+        // changed argb to rgb
+
+        /*
+        Notes:
+        ffd7e1e8 = made a nice green
+        ffb3c6d3 = lighter shade of gray
+        ffcccccc = gray
+        */
+        $styleHeadArray = array(
+            'font' => array(
+                'bold' => true,
+            ),            
+            'alignment' => array(
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+            ),            
+            'borders' => array(
+                'top' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'bottom' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'left' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'right' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+            ),
+            'fill' => array(
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_GRADIENT_LINEAR,
+                'rotation' => 90,
+                'startColor' => array(
+                    'argb' => 'ffb3c6d3',
+                ),
+                'endColor' => array(
+                    'argb' => 'ffb3c6d3',
+                ),
+            ),            
+        );        
+
+        $styleTitleArray = array(
+            'font' => array(
+                'bold' => true,
+            ),            
+            'alignment' => array(
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+            ),            
+            'borders' => array(
+                'top' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'bottom' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'left' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+                'right' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THICK,
+                ),
+            ),           
+        ); 
+
+        $styleBodyArray = array(
+            'borders' => array(
+                'allBorders' => array(
+                    'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
+                ),
+            ),          
+        );        
 
         $spreadsheet = new Spreadsheet();
 
-        $myWorkSheet1 = new Worksheet($spreadsheet, 'Installs');
-        $spreadsheet->addSheet($myWorkSheet1, 0);
-
         // Header
-        $spreadsheet->getProperties()->setCreator('ADS')
+        $spreadsheet->getProperties()
+        ->setCreator('ADS')
         ->setLastModifiedBy('ADS')
-        ->setTitle('ADS Monthly Report')
-        ->setSubject('ADS Monthly Report')
-        ->setDescription('ADS Monthly Report')
-        ->setKeywords('ADS Monthly Report')
-        ->setCategory('ADS Monthly Report');
+        ->setTitle('ADS Report')
+        ->setSubject('ADS Report')
+        ->setDescription('ADS Report')
+        ->setKeywords('ADS Report')
+        ->setCategory('ADS Report');
+
+        $counter = "0";
+
+        if(is_array($dealers)) {
+            foreach($dealers as $key=>$dealer) {
+
+                $count1 = count($dealer_install_data[$dealer]);
+                $count2 = count($dealer_removal_data[$dealer]);
+                $count3 = count($dealer_download_data[$dealer]);
+
+                if (($count1 > 0) or ($count2 > 0) or ($count3 > 0)) {
+                    // Maximum 31 characters allowed in sheet title.
+                    if (strlen($dealer) > 31) {
+                        $dealer_title = substr($dealer,0,31);
+                    } else {
+                        $dealer_title = $dealer;
+                    }
+                    $myWorkSheet1 = new Worksheet($spreadsheet, $dealer_title);
+                    $spreadsheet->addSheet($myWorkSheet1, $counter);
+                    $spreadsheet->setActiveSheetIndex($counter);                    
+
+                    $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(40);
+                    $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
+                    $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
+                    $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(40);
+                    $spreadsheet->getActiveSheet()->getColumnDimension('E')->setWidth(100);
+
+                    // Title
+                    $spreadsheet->getActiveSheet()->mergeCells('A1:D1');
+                    $spreadsheet->getActiveSheet()->setCellValue('A1',$dealer);
+                    $spreadsheet->getActiveSheet()->getStyle('A1')->getFont()->setBold(true);
+                    $spreadsheet->getActiveSheet()->getStyle('A1')->getFont()->setSize(16);
+
+                    // Installs
+
+                    $spreadsheet->getActiveSheet()->mergeCells('A2:D2');
+                    $spreadsheet->getActiveSheet()->setCellValue('A2','INSTALLS');
+
+                    $spreadsheet->getActiveSheet()->getStyle('A2:D2')->applyFromArray($styleHeadArray);
+
+                    $spreadsheet->getActiveSheet()
+                    ->setCellValue('A3', 'CUSTOMER')
+                    ->setCellValue('B3', 'LN')
+                    ->setCellValue('C3', 'INSTALL DATE')
+                    ->setCellValue('D3', 'SUB-DEALER');
+
+                    $spreadsheet->getActiveSheet()->getStyle('A3:D3')->applyFromArray($styleTitleArray);
+
+                    $data = $dealer_install_data[$dealer];
+                    $part2 = "";
+                    $next_cell = "";
+                    if(is_array($data)) {
+                        $part2 = count($data);
+                        $spreadsheet->getActiveSheet()->fromArray($data, null, 'A4');
+
+                        $num = $part2 + 3;    
+                        $cells = "A4:D" . $num;
+
+                        $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleBodyArray);
+
+                    }
+                  
+                    // Removals
+
+                    $next_cell = 4 + $part2 + 1;
+                    $cells = "A" . $next_cell . ":D" . $next_cell;
+
+                    $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleTitleArray);
 
 
-        // page 1
-        $spreadsheet->setActiveSheetIndex(0);
+                    $cell = "A".$next_cell.":D".$next_cell;
+                    $spreadsheet->getActiveSheet()->mergeCells($cell);
+                    $cell = "A".$next_cell;
+                    $spreadsheet->getActiveSheet()->setCellValue($cell,'REMOVALS');
 
-        if ($subdealer == "Yes") {
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('E')->setWidth(20);
+                    $spreadsheet->getActiveSheet()->getStyle($cell)->applyFromArray($styleHeadArray);
 
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'SUB-DEALER')
-            ->setCellValue('C1', 'CUSTOMER')
-            ->setCellValue('D1', 'LN')
-            ->setCellValue('E1', 'INSTALL DATE');
 
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
+                    $next_cell++;
 
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE);  
+                    $cell1 = "A".$next_cell;
+                    $cell2 = "B".$next_cell;
+                    $cell3 = "C".$next_cell;
+                    $cell4 = "D".$next_cell;
+                    $spreadsheet->getActiveSheet()
+                    ->setCellValue($cell1, 'CUSTOMER')
+                    ->setCellValue($cell2, 'LN')
+                    ->setCellValue($cell3, 'REMOVAL DATE')                    
+                    ->setCellValue($cell4, 'SUB-DEALER');                    
 
-            $dataArray = $tab1;
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
+                    $cells = "A" . $next_cell . ":D" . $next_cell;
+
+                    $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleTitleArray);
+
+                    $cell = "A".$next_cell.":E".$next_cell;
+                    $next_cell++;
+                    $cell1 = "A".$next_cell;
+
+                    $part3 = "";
+                    $data = $dealer_removal_data[$dealer];
+                    if(is_array($data)) {
+                        $part3 = count($data);
+                        $spreadsheet->getActiveSheet()->fromArray($data, null, $cell1);
+
+                        $num = ($part3 + $next_cell) - 1;    
+                        $cells = "A".$next_cell.":D" . $num;
+                        $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleBodyArray);                        
+                    }
+                 
+                    // Downloads
+
+                    $next_cell = $next_cell + $part3 + 1;
+
+                    $cells = "A" . $next_cell . ":E" . $next_cell;
+
+                    $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleTitleArray);
+
+                    $cell = "A".$next_cell.":E".$next_cell;
+                    $spreadsheet->getActiveSheet()->mergeCells($cell);
+                    $cell = "A".$next_cell;
+                    $spreadsheet->getActiveSheet()->setCellValue($cell,'DOWNLOADS');
+
+                    $spreadsheet->getActiveSheet()->getStyle($cell)->applyFromArray($styleHeadArray);
+
+                    $next_cell++;
+
+                    $cell1 = "A".$next_cell;
+                    $cell2 = "B".$next_cell;
+                    $cell3 = "C".$next_cell;
+                    $cell4 = "D".$next_cell;
+                    $cell5 = "E".$next_cell;
+
+                    $spreadsheet->getActiveSheet()
+                    ->setCellValue($cell1, 'CUSTOMER')
+                    ->setCellValue($cell2, 'LN')
+                    ->setCellValue($cell3, 'DOWNLOAD DATE')
+                    ->setCellValue($cell4, 'SUB-DEALER')       
+                    ->setCellValue($cell5, 'COMMENT');         
+
+
+                    $cells = "A" . $next_cell . ":E" . $next_cell;
+
+                    $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleTitleArray);
+
+                    $cell = "A".$next_cell.":E".$next_cell;
+                    $next_cell++;
+                    $cell1 = "A".$next_cell;
+
+                    $part4 = "";
+                    $data = $dealer_download_data[$dealer];
+                    if(is_array($data)) {
+                        $part4 = count($data);
+                        $spreadsheet->getActiveSheet()->fromArray($data, null, $cell1);
+
+                        $num = ($part4 + $next_cell) - 1;    
+                        $cells = "A".$next_cell.":E" . $num;
+                        $spreadsheet->getActiveSheet()->getStyle($cells)->applyFromArray($styleBodyArray);                         
+                    }
+
+                    $counter++;
+                }
+
+            }
+
+            // Clean Up
+            $sheetIndex = $spreadsheet->getIndex(
+                $spreadsheet->getSheetByName('Worksheet')
+            );
+            $spreadsheet->removeSheetByIndex($sheetIndex);        
+            $spreadsheet->setActiveSheetIndex(0);
+
+            // Save
+            $writer = new Xlsx($spreadsheet);
+            $newfile = $site_path . "/" . $filename;
+            $writer->save($newfile);
 
         } else {
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'CUSTOMER')
-            ->setCellValue('C1', 'LN')
-            ->setCellValue('D1', 'INSTALL DATE');
-
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE);   
-
-            $dataArray = $tab1;
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
-
+            // error - dealers is not an array
         }
+    }
 
-        // page 2
-        $myWorkSheet2 = new Worksheet($spreadsheet, 'Removals');
-        $spreadsheet->addSheet($myWorkSheet2, 1);
-
-        $dataArray = $tab2;
-        //$spreadsheet->createSheet();
-
-        $spreadsheet->setActiveSheetIndex(1);
-
-        if ($subdealer == "Yes") {
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('E')->setWidth(20);
-
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'SUB-DEALER')
-            ->setCellValue('C1', 'CUSTOMER')
-            ->setCellValue('D1', 'LN')
-            ->setCellValue('E1', 'REMOVAL DATE');
-
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE); 
-
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
-
-        } else {
-
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'CUSTOMER')
-            ->setCellValue('C1', 'LN')
-            ->setCellValue('D1', 'REMOVAL DATE');
-
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE); 
-
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:D1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
-
-        }
-
-        // page 3
-        $myWorkSheet3 = new Worksheet($spreadsheet, 'Downloads');
-        $spreadsheet->addSheet($myWorkSheet3, 2);
-
-        $dataArray = $tab3;
-        //$spreadsheet->createSheet();
-
-        $spreadsheet->setActiveSheetIndex(2);
-
-        if ($subdealer == "Yes") {
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('E')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('F')->setWidth(60);
-
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'SUB-DEALER')
-            ->setCellValue('C1', 'CUSTOMER')
-            ->setCellValue('D1', 'LN')
-            ->setCellValue('E1', 'SERVICE DATE')
-            ->setCellValue('F1', 'COMMENT');
-
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:F1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-            $spreadsheet->getActiveSheet()->getStyle('A1:F1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE); 
-
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:F1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
-
-        } else {
-
-            $spreadsheet->getActiveSheet()->getColumnDimension('A')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('B')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('C')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('D')->setWidth(20);
-            $spreadsheet->getActiveSheet()->getColumnDimension('E')->setWidth(60);
-
-            $spreadsheet->getActiveSheet()
-            ->setCellValue('A1', 'DEALER')
-            ->setCellValue('B1', 'CUSTOMER')
-            ->setCellValue('C1', 'LN')
-            ->setCellValue('D1', 'SERVICE DATE')
-            ->setCellValue('E1', 'COMMENT');
-
-            // style
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')
-            ->getFont()->getColor()->setARGB(Color::COLOR_WHITE);
-
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFill()
-            ->setFillType(Fill::FILL_SOLID)
-            ->getStartColor()->setARGB(Color::COLOR_BLUE); 
-
-            $spreadsheet->getActiveSheet()->fromArray($dataArray, null, 'A2');
-            $spreadsheet->getActiveSheet()->getStyle('A1:E1')->getFont()->setBold(true);
-            $spreadsheet->getActiveSheet()->setAutoFilter($spreadsheet->getActiveSheet()->calculateWorksheetDimension());
-
-        }
-
-        // Clean Up
-        $sheetIndex = $spreadsheet->getIndex(
-            $spreadsheet->getSheetByName('Worksheet')
-        );
-        $spreadsheet->removeSheetByIndex($sheetIndex);        
-        $spreadsheet->setActiveSheetIndex(0);
-
-        // Save
-        $writer = new Xlsx($spreadsheet);
-        $writer->save('helloworld.xlsx');
-
-
-        $writer = new Xlsx($spreadsheet);
-        $newfile = $site_path . "/" . $filename;
-        $writer->save($newfile);
-
-        return null;
-    }    
-
-}
+} // end class

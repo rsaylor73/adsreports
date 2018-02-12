@@ -16,7 +16,11 @@ services:
 
     commonservices:
         class: AppBundle\Service\commonservices
-        public: false
+        public: true
+
+    springdale:
+        class: AppBundle\Service\springdale
+        public: true
 
     # makes classes in src/AppBundle available to be used as services
     # this creates a service per class whose id is the fully-qualified class name

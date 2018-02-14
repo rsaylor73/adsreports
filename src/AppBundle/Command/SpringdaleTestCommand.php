@@ -98,7 +98,7 @@ class SpringdaleTestCommand extends ContainerAwareCommand
                 $distro = $this->getContainer()->get('springdale')->distro($value);
 
                 $dealers = $this->getContainer()->get('springdale')
-                ->getDealerNames($distro,$date1,$date2);
+                ->getDealerNames_v2($distro);
                 $dealers = array_unique($dealers);
 
                 // init
@@ -128,7 +128,7 @@ class SpringdaleTestCommand extends ContainerAwareCommand
                 $counter = "0";
                 $counter = count($dealer_install_data) + count($dealer_removal_data) + count($dealer_download_data);
                 if ($counter > 0) {
-                    $this->getContainer()->get('commonservices')->create_file_v2($dealers,$dealer_install_data,$dealer_removal_data,$dealer_download_data,$filename,$site_path);
+                    $this->getContainer()->get('springdale')->create_file_v2($dealers,$dealer_install_data,$dealer_removal_data,$dealer_download_data,$filename,$site_path);
 
                     $mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
                     $msg = $mg->MessageBuilder();

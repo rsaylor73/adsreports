@@ -121,6 +121,7 @@ class ReportsCommand extends ContainerAwareCommand
                 $dealer_install_data = array();
                 $dealer_removal_data = array();
                 $dealer_download_data = array();
+                $dealer_lockcodes_data = array();
 
                 if (is_array($dealers)) {
                     foreach ($dealers as $key=>$dealer) {
@@ -135,13 +136,17 @@ class ReportsCommand extends ContainerAwareCommand
                         // Downloads
                         $dealer_download_data[$dealer] = $this->getContainer()->get('commonservices')
                         ->downloads_v2($dealer,$territory,$start,$end,$dealerID);
+
+                        // Lock Codes
+                        $dealer_lockcodes_data[$dealer] = $this->getContainer()->get('commonservices')
+                        ->lockcodes_v2($dealer,$territory,$start,$end,$dealerID);
                     }
                 }
 
                 $counter = "0";
                 $counter = count($dealer_install_data) + count($dealer_removal_data) + count($dealer_download_data);
                 if ($counter > 0) {
-                    $this->getContainer()->get('commonservices')->create_file_v2($dealers,$dealer_install_data,$dealer_removal_data,$dealer_download_data,$filename,$site_path);
+                    $this->getContainer()->get('commonservices')->create_file_v2($dealers,$dealer_install_data,$dealer_removal_data,$dealer_download_data,$dealer_lockcodes_data,$filename,$site_path);
 
                     $mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
                     $msg = $mg->MessageBuilder();

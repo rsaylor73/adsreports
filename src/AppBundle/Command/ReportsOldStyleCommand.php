@@ -56,9 +56,9 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
                         $month = date("F", strtotime($start));
                         $day = date("d", strtotime($start));
                         $today = date("m/d/Y", strtotime($start));
-                        $subj = "ADS daily " . strtoupper($state) . " report";
-                        $body = "Report Type: Daily<br>Date: $today<br>State: ".strtoupper($state)."<br><br>";
-                        $body_text = "Report Type: Daily | Date: $today | State: ".strtoupper($state);
+                        $subj = "ADS daily old style " . strtoupper($state) . " report";
+                        $body = "Report Type: Daily Old Style<br>Date: $today<br>State: ".strtoupper($state)."<br><br>";
+                        $body_text = "Report Type: Daily Old Style | Date: $today | State: ".strtoupper($state);
                         $filename = $day . "_" . $month."_".$year."_".$state.".xlsx";
                     break;
 
@@ -73,9 +73,9 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
 
                         $year = date("Y", strtotime($start));
                         $week = date("W", strtotime($start));
-                        $subj = "ADS weekly " . strtoupper($state) . " report";
-                        $body = "Report Type: Weekly<br>Date: $start_p to $end_p<br>Week: $week<br>Year: $year<br>State: ".strtoupper($state)."<br><br>";
-                        $body_text = "Report Type: Weekly | Date: $start_p to $end_p | Week: $week | Year: $year | State: ".strtoupper($state);
+                        $subj = "ADS weekly old style " . strtoupper($state) . " report";
+                        $body = "Report Type: Weekly Old Style<br>Date: $start_p to $end_p<br>Week: $week<br>Year: $year<br>State: ".strtoupper($state)."<br><br>";
+                        $body_text = "Report Type: Weekly Old Style | Date: $start_p to $end_p | Week: $week | Year: $year | State: ".strtoupper($state);
 
                         $filename = $week."_".$year."_".$state.".xlsx";
                     break;
@@ -87,9 +87,9 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
                         $end_p = date("m/d/Y", strtotime($end));                
                         $year = date("Y", strtotime("first day of previous month"));
                         $month = date("F", strtotime("first day of previous month"));
-                        $subj = "ADS monthly " . strtoupper($state) . " report";
-                        $body = "Report Type: Monthly<br>Date: $start_p to $end_p<br>Month: $month<br>Year: $year<br>State: ".strtoupper($state)."<br><br>";
-                        $body_text = "Report Type: Monthly | Date: $start_p to $end_p | Month: $month | Year: $year | State: ".strtoupper($state);
+                        $subj = "ADS monthly old style " . strtoupper($state) . " report";
+                        $body = "Report Type: Monthly Old Style<br>Date: $start_p to $end_p<br>Month: $month<br>Year: $year<br>State: ".strtoupper($state)."<br><br>";
+                        $body_text = "Report Type: Monthly Old Style | Date: $start_p to $end_p | Month: $month | Year: $year | State: ".strtoupper($state);
                         $filename = $month.$year."_".$state.".xlsx";
                     break;
 
@@ -118,25 +118,28 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
                 $install_data = array();
                 $removal_data = array();
                 $download_data = array();
-
+                $unlock_data = array();
 
                 // Installs
-                $install_data = $this->getContainer()->get('commonservices')
+                $install_data = $this->getContainer()->get('oldstyleservices')
                 ->installs_v2_oldstyle($territory,$start,$end,$dealerID);
 
                 // Removals
-                $removal_data = $this->getContainer()->get('commonservices')
+                $removal_data = $this->getContainer()->get('oldstyleservices')
                 ->removals_v2_oldstyle($territory,$start,$end,$dealerID);
 
                 // Downloads
-                $download_data = $this->getContainer()->get('commonservices')
+                $download_data = $this->getContainer()->get('oldstyleservices')
                 ->downloads_v2_oldstyle($territory,$start,$end,$dealerID);
 
+                // Lock Codes
+                $unlock_data = $this->getContainer()->get('oldstyleservices')
+                ->lockcodes_v2_oldstyle($territory,$start,$end,$dealerID);
 
                 $counter = "0";
                 $counter = count($install_data) + count($removal_data) + count($download_data);
                 if ($counter > 0) {
-                    $this->getContainer()->get('commonservices')->create_file_v2_oldstyle($install_data,$removal_data,$download_data,$filename,$site_path);
+                    $this->getContainer()->get('oldstyleservices')->create_file_v2_oldstyle($install_data,$removal_data,$download_data,$unlock_data,$filename,$site_path);
 
                     $mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
                     $msg = $mg->MessageBuilder();

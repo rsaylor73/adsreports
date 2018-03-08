@@ -141,7 +141,8 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
                 if ($counter > 0) {
                     $this->getContainer()->get('oldstyleservices')->create_file_v2_oldstyle($install_data,$removal_data,$download_data,$unlock_data,$filename,$site_path);
 
-                    $mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
+                    //$mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
+                    $mg = new Mailgun($mg_api_key);
                     $msg = $mg->MessageBuilder();
                     $msg->setFromAddress($mg_from);
                     $msg->addToRecipient(implode(',',$email));
@@ -157,7 +158,8 @@ class ReportsOldStyleCommand extends ContainerAwareCommand
                 } else {
                     $body .= "<br><font color=\"red\">Sorry but there was not any data available for this report.</font><br>";
                     $body_text .= "\n\nSorry but there was not any data available for this report.\n\n";
-                    $mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
+                    //$mg = new Mailgun($mg_api_key, new \Http\Adapter\Guzzle6\Client());
+                    $mg = new Mailgun($mg_api_key);
                     $msg = $mg->MessageBuilder();
                     $msg->setFromAddress($mg_from);
                     $msg->addToRecipient(implode(',',$email));
